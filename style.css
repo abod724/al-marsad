@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
 
 * {
     margin: 0;
@@ -8,9 +8,10 @@
 }
 
 body {
-    background: #0f172a;
-    background-image: radial-gradient(circle at 50% 0%, #1e293b 0%, #0f172a 70%);
-    color: #fff;
+    /* خلفية بيضاء ناعمة ومريحة للعين */
+    background-color: #f8fafc;
+    background-image: radial-gradient(circle at 50% 0%, #ffffff 0%, #f8fafc 100%);
+    color: #1e293b;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -27,39 +28,38 @@ header {
 header h1 {
     font-size: 2.5rem;
     font-weight: 800;
-    background: linear-gradient(45deg, #3b82f6, #8b5cf6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #1e293b;
     margin-bottom: 0.5rem;
 }
 
 header p {
-    color: #94a3b8;
+    color: #64748b;
     font-size: 1.1rem;
+    font-weight: 500;
 }
 
 main {
     width: 100%;
-    max-width: 500px;
-    background: rgba(30, 41, 59, 0.7);
-    backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 24px;
-    padding: 2rem;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    max-width: 520px;
+    /* بطاقة بيضاء بظل ناعم */
+    background: #ffffff;
+    border-radius: 28px;
+    padding: 2.5rem 2rem;
+    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0,0,0,0.02);
     animation: fadeInUp 0.8s ease;
 }
 
 .stage {
     display: flex;
     justify-content: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 2rem;
 }
 
 #avatar {
-    width: 240px;
+    width: 260px;
     height: auto;
-    filter: drop-shadow(0 20px 30px rgba(0, 0, 0, 0.5));
+    /* ظل ناعم للشخصية عشان تبرز */
+    filter: drop-shadow(0 15px 25px rgba(0, 0, 0, 0.1));
     transition: transform 0.3s ease;
 }
 
@@ -75,34 +75,36 @@ main {
 .controls {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.2rem;
 }
 
 textarea {
     width: 100%;
-    padding: 1rem;
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 1.2rem;
+    border-radius: 18px;
+    border: 2px solid #e2e8f0;
     resize: none;
     font-size: 1.1rem;
     font-family: inherit;
-    background: rgba(15, 23, 42, 0.6);
-    color: #f8fafc;
+    background-color: #f8fafc;
+    color: #1e293b;
     transition: all 0.3s ease;
+    line-height: 1.6;
 }
 
 textarea:focus {
     outline: none;
     border-color: #3b82f6;
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+    background-color: #ffffff;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
 }
 
 button {
-    padding: 1rem;
-    border-radius: 16px;
+    padding: 1.1rem;
+    border-radius: 18px;
     border: none;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    color: #fff;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #ffffff;
     font-size: 1.2rem;
     font-weight: 700;
     cursor: pointer;
@@ -112,7 +114,7 @@ button {
 
 button:hover:not(:disabled) {
     transform: translateY(-3px);
-    box-shadow: 0 15px 25px -5px rgba(59, 130, 246, 0.6);
+    box-shadow: 0 15px 25px -5px rgba(59, 130, 246, 0.5);
 }
 
 button:active:not(:disabled) {
@@ -122,7 +124,7 @@ button:active:not(:disabled) {
 button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-    background: #475569;
+    background: #cbd5e1;
     box-shadow: none;
 }
 
