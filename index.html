@@ -1,1 +1,70 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>صحيفة المرصد | البث الذكي</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
 
+    <header>
+        <h1>📰 صحيفة المرصد</h1>
+        <p>منصة البرودسكات الذكية</p>
+    </header>
+
+    <main>
+        <div class="stage">
+            <!-- شخصية SVG: مذيع أخبار حديث -->
+            <svg id="avatar" viewBox="0 0 400 500" xmlns="http://www.w3.org/2000/svg">
+                <!-- خلفية دائرية للاستوديو -->
+                <circle cx="200" cy="250" r="180" fill="#1e293b" opacity="0.5"/>
+
+                <!-- الجسم / البدلة -->
+                <path d="M80 500 L80 350 C80 290, 320 290, 320 350 L320 500 Z" fill="#0f172a"/>
+                <!-- القميص -->
+                <path d="M160 350 L200 450 L240 350 Z" fill="#f8fafc"/>
+                <!-- ربطة العنق -->
+                <path d="M190 370 L200 400 L210 370 L200 350 Z" fill="#3b82f6"/>
+
+                <!-- الرأس -->
+                <circle cx="200" cy="200" r="95" fill="#fcd34d" stroke="#e2e8f0" stroke-width="2"/>
+                
+                <!-- الشعر -->
+                <path d="M105 180 C105 90, 295 90, 295 180 C295 140, 250 100, 200 100 C150 100, 105 140, 105 180 Z" fill="#1e293b"/>
+                
+                <!-- النظارة -->
+                <rect x="125" y="165" width="55" height="35" rx="8" fill="none" stroke="#1e293b" stroke-width="5"/>
+                <rect x="220" y="165" width="55" height="35" rx="8" fill="none" stroke="#1e293b" stroke-width="5"/>
+                <line x1="180" y1="185" x2="220" y2="185" stroke="#1e293b" stroke-width="5"/>
+                
+                <!-- العيون -->
+                <circle cx="152" cy="182" r="7" fill="#1e293b"/>
+                <circle cx="247" cy="182" r="7" fill="#1e293b"/>
+
+                <!-- الحواجب -->
+                <path d="M130 155 Q152 145 175 155" fill="none" stroke="#1e293b" stroke-width="4" stroke-linecap="round"/>
+                <path d="M225 155 Q247 145 270 155" fill="none" stroke="#1e293b" stroke-width="4" stroke-linecap="round"/>
+
+                <!-- الفم (متحرك) -->
+                <ellipse id="mouth" cx="200" cy="235" rx="25" ry="5" fill="#dc2626"/>
+
+                <!-- الخدود -->
+                <circle cx="120" cy="215" r="12" fill="#ef4444" opacity="0.3"/>
+                <circle cx="280" cy="215" r="12" fill="#ef4444" opacity="0.3"/>
+
+                <!-- الميكروفون -->
+                <rect x="300" y="400" width="15" height="80" rx="7" fill="#64748b"/>
+                <ellipse cx="307" cy="400" rx="25" ry="12" fill="#94a3b8"/>
+            </svg>
+        </div>
+
+        <div class="controls">
+            <textarea id="script" rows="3" placeholder="اكتب النص هنا...">مرحباً بكم في صحيفة المرصد! نحن هنا لنقدم لكم أحدث الأخبار والمعلومات.</textarea>
+            <button id="speakBtn">🎤 ابدأ البث</button>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
