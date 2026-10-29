@@ -33,7 +33,7 @@ from templates_content import (
     LH, OAUTH_CALLBACK_HTML, RESET_HTML, HT
 )
 
-# استدعاء ملفات المكتبة والذاكرة (تأكد من وجودها في نفس المجلد)
+# استدعاء ملفات المكتبة والذاكرة
 from library import library_bp, view_shared_page
 from memory_page import MEMORY_CSS, MEMORY_HTML, MEMORY_JS
 
@@ -425,17 +425,6 @@ def load_conversation_public(cid):
         return r.data or []
     except Exception as e: return []
 
-def delete_message_row(uid, cid, index):
-    try:
-        r = (sb.table("assistant_chats").select("id,message,response").eq("user_id", uid).eq("conv_id", cid).order("created_at").execute())
-        rows = r.data or []
-        if index < 0 or index >= len(rows): return False
-        row_idx = index // 2
-        if row_idx >= len(rows): return False
-        sb.table("assistant_chats").delete().eq("id", rows[row_idx]["id"]).execute()
-        return True
-    except Exception as e: return False
-
 # ==============================================================================
 # 4. رفع الصور إلى Supabase Storage
 # ==============================================================================
@@ -486,7 +475,153 @@ def delete_user_image(uid, image_id):
     except Exception as e: return False
 
 # ==============================================================================
-# 5. الإعدادات والبرومبت
+# 5. دوال البحث والأخبار (النسخة الأصلية الذكية)
+# ==============================================================================
+def detect_news_query(message):
+    if not message or not isinstance(message, str):
+        return None
+    msg = message.strip()
+    if len(msg) < 2:
+        return None
+
+    clean_msg = re.sub(r"[؟?!،,.]", "", msg).strip()
+    clean_msg = re.sub(r"\s+", " ", clean_msg).strip().lower()
+
+    greeting_words = [
+        "اخبارك", "أخبارك", "شخبارك", "شلونك", "شلون", "علومك",
+        "كيف", "وش", "ايش", "إيش", "هلا", "مرحبا", "السلام", "عليكم",
+        "يا", "طويل", "العمر", "و", "الحال", "الدنيا",
+        "صباح", "مساء", "الخير", "النور", "الله", "يعطيك", "العافية", "بخير",
+        "عساك", "طيب", "شحالك"
+    ]
+    temp_msg = clean_msg
+    for w in greeting_words:
+        temp_msg = temp_msg.replace(w, "")
+    temp_msg = re.sub(r"\s+", "", temp_msg).strip()
+
+    if not temp_msg:
+        return None
+
+    news_keywords = ["أخبار", "اخبار", "الأخبار", "الاخبار", "خبر", "news"]
+    has_news_kw = any(kw in msg or kw.lower() in msg.lower() for kw in news_keywords)
+    if not has_news_kw:
+        return None
+
+    general_markers = [
+        "أهم أخبار السعودية والعالم اليوم",
+        "اهم اخبار السعودية والعالم اليوم",
+        "أهم الأخبار", "اهم الاخبار",
+        "آخر الأخبار", "اخر الاخبار",
+        "أخبار اليوم", "اخبار اليوم",
+        "أخبار السعودية والعالم",
+        "كيف الأخبار", "كيف الاخبار",
+    ]
+    for g in general_markers:
+        if g in msg:
+            return "أهم أخبار السعودية والعالم اليوم"
+
+    topic = msg
+    filler_words = [
+        "وش", "ايش", "إيش", "ما", "ماهي", "ماهو",
+        "أبي", "ابي", "أبغى", "ابغى", "عطني", "أعطني", "هات", "جيب",
+        "آخر", "اخر", "أهم", "اهم", "عن", "حول", "اليوم", "الآن", "الان",
+        "ابحث", "بالويب", "في الويب", "على الويب", "ويب", "لي", "اعطني", "أعطني", "وريني", "شوف"
+    ]
+    for word in filler_words:
+        topic = re.sub(rf"\b{re.escape(word)}\b", " ", topic)
+    topic = re.sub(r"\s+", " ", topic).strip()
+    topic = topic.replace("أخبار", "").replace("اخبار", "").replace("الأخبار", "").replace("الاخبار", "").strip()
+
+    if topic and len(topic) >= 2:
+        return topic[:150]
+
+    return "أهم أخبار السعودية والعالم اليوم"
+
+_news_cache = {}
+_NEWS_CACHE_TTL = 900
+
+def fetch_news(query, limit=6):
+    if not isinstance(query, str) or len(query.strip()) < 2: return []
+    query = query.strip()[:150]
+    limit = max(1, min(int(limit), 20))
+    now = time.time()
+    cached = _news_cache.get(query)
+    if cached and now - cached[0] < _NEWS_CACHE_TTL: return cached[1][:limit]
+
+    normalized = re.sub(r"\s+", " ", query).strip().lower()
+    general_queries = {
+        "أهم أخبار السعودية والعالم اليوم", "اهم اخبار السعودية والعالم اليوم",
+        "أهم الأخبار", "اهم الاخبار", "آخر الأخبار", "اخر الاخبار",
+    }
+
+    if normalized in general_queries:
+        searches = ["أخبار السعودية when:1d", "أخبار الخليج when:1d", "أخبار العالم when:1d"]
+    else:
+        searches = [query]
+
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; NibrasGP/1.0)"}
+    feeds = []
+
+    for search_query in searches:
+        url = "https://news.google.com/rss/search?q=" + quote_plus(search_query) + "&hl=ar&gl=SA&ceid=SA:ar"
+        articles = []
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            for item in root.findall(".//item"):
+                title = (item.findtext("title") or "").strip()
+                link = (item.findtext("link") or "").strip()
+                published = (item.findtext("pubDate") or "").strip()
+                source_element = item.find("source")
+                source = (source_element.text or "").strip() if source_element is not None else ""
+                if title and link:
+                    articles.append({"title": title, "link": link, "published": published, "source": source})
+        except Exception as exc:
+            print("News fetch error:", type(exc).__name__, str(exc))
+        feeds.append(articles)
+
+    results = []
+    seen = set()
+    max_items = max((len(feed) for feed in feeds), default=0)
+    for index in range(max_items):
+        for feed in feeds:
+            if index >= len(feed): continue
+            article = feed[index]
+            key = re.sub(r"\W+", "", article["title"].casefold())
+            if key and key not in seen:
+                seen.add(key)
+                results.append(article)
+            if len(results) >= limit: break
+        if len(results) >= limit: break
+
+    if len(_news_cache) > 100: _news_cache.clear()
+    _news_cache[query] = (now, results)
+    return results[:limit]
+
+def format_news_reply(articles, lang="ar"):
+    if not articles: return "ما لقيت أخبار جديدة عن الموضوع هذا." if lang == "ar" else "No recent news found."
+    lines = ["## 📰 آخر الأخبار" if lang == "ar" else "## 📰 Latest News", "", "هذي القائمة بأحدث الأخبار المتعلقة بطلبك:"]
+    for i, a in enumerate(articles[:10], 1):
+        title = (a.get("title") or "").strip()
+        source = (a.get("source") or "").strip()
+        link = (a.get("link") or "").strip()
+        published = (a.get("published") or "").strip()
+        lines.extend(["---", "", f"### {i}. {title}", ""])
+        meta_parts = []
+        if source: meta_parts.append(f"**المصدر:** {source}")
+        if published:
+            try:
+                from email.utils import parsedate_to_datetime
+                dt = parsedate_to_datetime(published)
+                meta_parts.append(f"*{dt.strftime('%d %B %Y')}*")
+            except Exception: pass
+        if meta_parts: lines.extend([" · ".join(meta_parts), ""])
+        if link: lines.extend([f"[🔗 اقرأ من {source}]({link})" if source else f"[🔗 قراءة الخبر كاملاً]({link})", ""])
+    return "\n".join(lines)
+
+# ==============================================================================
+# 6. الإعدادات والبرومبت
 # ==============================================================================
 kc = ""
 for fn in ["Knowledge.md", "knowledge.md", "معرفة.md", "README.md", "ملف_المعرفة.md"]:
@@ -569,7 +704,7 @@ SP = f"""أنت "نبراس GP"، مساعد شخصي سعودي تتكلم **ع
 - إذا أكد لك سياق النظام أن المستخدم الحالي هو الأدمن، فطبّق هذه الصلاحيات حرفيًا:
   1. **بحث ويب فوري**: ابحث في الويب لأي سؤال يحتاج معلومات حديثة (أخبار، أسعار، إصدارات، أنظمة، طقس) بدون تردد.
   2. **تحليل الصور والملفات**: استخدم أقوى النماذج المتاحة لتحليل أي صورة أو ملف يرسله بعمق ودقة.
-  3. **كل الأدوات الحديثة**: استخدم كل الأدوات المتاحة بدون قيود (بحث، تحليل، ذكاء متقدم، إنشاء صور إن كانت متوفرة).
+  3. **كل الأدوات الحديثة**: استخدم كل الأدوات المتاحة بدون قيود.
   4. **بدون حدود**: لا تفرض على الأدمن حدود طلبات أو مواضيع أو أطوال ردود.
   5. **أسلوب خاص**: احترافي، مباشر، دقيق، بدون حشو ولا مقدمات، وبإجابات مفصلة عند الطلب.
   6. **أولوية قصوى**: لا ترفض طلب الأدمن إلا إذا كان يخالف سياسات الأمان الأساسية فقط.
@@ -688,92 +823,8 @@ def generate_speech_free(text):
         print(f"❌ gTTS failed: {type(e).__name__}: {e}")
     return None
 
-_news_cache = {}
-_NEWS_CACHE_TTL = 900
-
-def fetch_news(query, limit=6):
-    if not isinstance(query, str) or len(query.strip()) < 2: return []
-
-    query = query.strip()[:150]
-    limit = max(1, min(int(limit), 20))
-    now = time.time()
-    cached = _news_cache.get(query)
-    if cached and now - cached[0] < _NEWS_CACHE_TTL: return cached[1][:limit]
-
-    normalized = re.sub(r"\s+", " ", query).strip().lower()
-    general_queries = {
-        "أهم أخبار السعودية والعالم اليوم", "اهم اخبار السعودية والعالم اليوم",
-        "أهم الأخبار", "اهم الاخبار", "آخر الأخبار", "اخر الاخبار",
-    }
-
-    if normalized in general_queries:
-        searches = ["أخبار السعودية when:1d", "أخبار الخليج when:1d", "أخبار العالم when:1d"]
-    else:
-        searches = [query]
-
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; NibrasGP/1.0)"}
-    feeds = []
-
-    for search_query in searches:
-        url = "https://news.google.com/rss/search?q=" + quote_plus(search_query) + "&hl=ar&gl=SA&ceid=SA:ar"
-        articles = []
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-            root = ET.fromstring(response.content)
-            for item in root.findall(".//item"):
-                title = (item.findtext("title") or "").strip()
-                link = (item.findtext("link") or "").strip()
-                published = (item.findtext("pubDate") or "").strip()
-                source_element = item.find("source")
-                source = (source_element.text or "").strip() if source_element is not None else ""
-                if title and link:
-                    articles.append({"title": title, "link": link, "published": published, "source": source})
-        except Exception as exc:
-            print("News fetch error:", type(exc).__name__, str(exc))
-        feeds.append(articles)
-
-    results = []
-    seen = set()
-    max_items = max((len(feed) for feed in feeds), default=0)
-    for index in range(max_items):
-        for feed in feeds:
-            if index >= len(feed): continue
-            article = feed[index]
-            key = re.sub(r"\W+", "", article["title"].casefold())
-            if key and key not in seen:
-                seen.add(key)
-                results.append(article)
-            if len(results) >= limit: break
-        if len(results) >= limit: break
-
-    if len(_news_cache) > 100: _news_cache.clear()
-    _news_cache[query] = (now, results)
-    return results[:limit]
-
-def format_news_reply(articles, lang="ar"):
-    if not articles: return "ما لقيت أخبار جديدة عن الموضوع هذا." if lang == "ar" else "No recent news found."
-    lines = ["## 📰 آخر الأخبار" if lang == "ar" else "## 📰 Latest News", "", "هذي القائمة بأحدث الأخبار المتعلقة بطلبك:"]
-    for i, a in enumerate(articles[:10], 1):
-        title = (a.get("title") or "").strip()
-        source = (a.get("source") or "").strip()
-        link = (a.get("link") or "").strip()
-        published = (a.get("published") or "").strip()
-        lines.extend(["---", "", f"### {i}. {title}", ""])
-        meta_parts = []
-        if source: meta_parts.append(f"**المصدر:** {source}")
-        if published:
-            try:
-                from email.utils import parsedate_to_datetime
-                dt = parsedate_to_datetime(published)
-                meta_parts.append(f"*{dt.strftime('%d %B %Y')}*")
-            except Exception: pass
-        if meta_parts: lines.extend([" · ".join(meta_parts), ""])
-        if link: lines.extend([f"[🔗 اقرأ من {source}]({link})" if source else f"[🔗 قراءة الخبر كاملاً]({link})", ""])
-    return "\n".join(lines)
-
 # ==============================================================================
-# 6. المسارات (Routes)
+# 7. المسارات (Routes)
 # ==============================================================================
 @app.route('/')
 def index():
@@ -804,7 +855,7 @@ def index():
     )
 
 # ==============================================================================
-# 7. مسارات الدعم (Lemon Squeezy)
+# 8. مسارات الدعم (Lemon Squeezy)
 # ==============================================================================
 LEMON_SQUEEZY_CHECKOUT_URL = os.environ.get("LEMON_SQUEEZY_CHECKOUT_URL", "")
 LEMON_SQUEEZY_WEBHOOK_SECRET = os.environ.get("LEMON_SQUEEZY_WEBHOOK_SECRET", "")
@@ -855,7 +906,7 @@ def lemonsqueezy_webhook():
         return jsonify({"error": str(e)}), 500
 
 # ==============================================================================
-# 8. مسارات المكتبة والمساعدين
+# 9. مسارات المكتبة والمساعدين
 # ==============================================================================
 @app.route('/library')
 def library_page():
@@ -1523,85 +1574,86 @@ def chat():
         msgs = [{"role": "system", "content": personality_inst + "\n\n" + SP + admin_context + memory_context + manual_context + profile_context + approved_knowledge_context + lang_inst + assistant_persona_extra}] + server_hist[-40:]
 
         # ==============================================================================
-        # التعديل الذكي: استخدام الأدوات بدل الكلمات المفتاحية
+        # البحث الإجباري عن الأخبار (الطريقة القديمة الذكية)
         # ==============================================================================
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_news",
-                    "description": "جلب آخر الأخبار. استخدمها فقط إذا طلب المستخدم الأخبار صراحة أو سأل عن مستجدات أو أحداث حالية. لا تستخدمها إذا كان يسأل عن حالك.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"topic": {"type": "string", "description": "موضوع الأخبار، اتركه فارغاً للأخبار العامة"}}
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_web",
-                    "description": "البحث في الإنترنت. استخدمها فقط إذا كان السؤال يحتاج معلومات حديثة أو حقائق حالية لا تعرفها.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"query": {"type": "string", "description": "نص البحث"}},
-                        "required": ["query"]
-                    }
-                }
-            }
-        ]
-
-        tool_calls = None
-        response_message = None
-        
-        # إذا كان هناك صورة، أو إذا كان المستخدم غير مسجل، نتخطى فحص الأدوات للسرعة
-        if not has_image and is_registered:
+        news_articles = None
+        if is_registered and um and not has_image:
             try:
-                first_response = client.chat.completions.create(
-                    model=OPENAI_MODEL, messages=msgs, tools=tools, tool_choice="auto", max_completion_tokens=150
-                )
-                response_message = first_response.choices[0].message
-                tool_calls = response_message.tool_calls
+                news_query = detect_news_query(um)
+                if news_query:
+                    news_articles = fetch_news(news_query, limit=10)
+                    if news_articles:
+                        inc_usage(uid, "search_count")
+                        print(f"📰 News found for '{news_query}': {len(news_articles)} articles")
             except Exception as e:
-                print(f"Tool check error: {e}")
+                print(f"news error: {e}")
 
-        if tool_calls:
-            msgs.append(response_message)
-            for tool_call in tool_calls:
-                function_name = tool_call.function.name
-                function_args = json.loads(tool_call.function.arguments)
-                
-                if function_name == "get_news":
-                    topic = function_args.get("topic") or "أهم أخبار السعودية والعالم اليوم"
-                    inc_usage(uid, "search_count")
-                    articles = fetch_news(topic, limit=10)
-                    
-                    if articles:
-                        news_md = format_news_reply(articles, user_lang)
-                        news_html = str(format_nibras_response(news_md))
-                        def news_stream():
-                            yield f"data: {json.dumps({'formatted_html': news_html}, ensure_ascii=False)}\n\n"
-                            nid = save_message(uid, um, news_md, cid) if is_registered else ("guest_conv_" + secrets.token_hex(5) if not cid else cid)
-                            inc_usage(uid, "chat_count")
-                            yield f"data: {json.dumps({'done': True, 'conv_id': nid}, ensure_ascii=False)}\n\n"
-                        return Response(stream_with_context(news_stream()), mimetype='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no', 'Connection': 'keep-alive'})
+        if news_articles:
+            news_titles = "\n".join([f"- {a['title']} (المصدر: {a['source']})" for a in news_articles[:3]])
+            prompt_for_news = (
+                f"المستخدم طلب أخبار. إليك أهم العناوين اللي جبتها:\n{news_titles}\n\n"
+                "اكتب مقدمة قصيرة جداً (جملة أو جملتين) بالعامي السعودي كأنك صديق يبشره بالأخبار، "
+                "ثم قل له إنك رتبت له الأخبار تحت عشان يقرأها. لا تكرر العناوين، بس تفاعل معها."
+            )
+
+            try:
+                news_intro_res = client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=[{"role": "system", "content": SP + personality_inst + lang_inst}, {"role": "user", "content": prompt_for_news}],
+                    max_completion_tokens=150,
+                    stream=False
+                )
+                news_intro = news_intro_res.choices[0].message.content.strip()
+            except:
+                news_intro = "أبشر يا طويل العمر، هذي آخر الأخبار اللي جمعتها لك:"
+
+            news_md = f"**{news_intro}**\n\n" + format_news_reply(news_articles, user_lang)
+            news_html = str(format_nibras_response(news_md))
+
+            def news_stream():
+                try:
+                    yield f"data: {json.dumps({'formatted_html': news_html}, ensure_ascii=False)}\n\n"
+                    nid = cid
+                    if is_registered:
+                        nid = save_message(uid, um, news_md, cid)
                     else:
-                        msgs.append({"role": "tool", "tool_call_id": tool_call.id, "content": "لم يتم العثور على أخبار."})
-                
-                elif function_name == "search_web":
-                    query = function_args.get("query")
-                    inc_usage(uid, "search_count")
-                    try:
-                        sr = client.responses.create(
-                            model=OPENAI_MODEL,
-                            instructions="أنت محرك بحث. ارجع النتائج مع الروابط.",
-                            input=query,
-                            tools=[{"type": "web_search"}]
-                        )
-                        res = sr.output_text if hasattr(sr, 'output_text') else str(sr.output)
-                    except Exception as e:
-                        res = "فشل البحث."
-                    msgs.append({"role": "tool", "tool_call_id": tool_call.id, "content": res})
+                        if not nid:
+                            nid = "guest_conv_" + secrets.token_hex(5)
+                    inc_usage(uid, "chat_count")
+                    yield f"data: {json.dumps({'done': True, 'conv_id': nid}, ensure_ascii=False)}\n\n"
+                except Exception as e:
+                    print("news error:", e)
+                    nid = cid or ("guest_conv_" + secrets.token_hex(5))
+                    inc_usage(uid, "chat_count")
+                    yield f"data: {json.dumps({'token': news_md}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'done': True, 'conv_id': nid}, ensure_ascii=False)}\n\n"
+
+            return Response(
+                stream_with_context(news_stream()),
+                mimetype='text/event-stream',
+                headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no', 'Connection': 'keep-alive'}
+            )
+
+        # البحث في الويب الإجباري (لكل رسالة للمستخدمين المسجلين)
+        if is_registered and can_search:
+            inc_usage(uid, "search_count")
+            try:
+                sr = client.responses.create(
+                    model=OPENAI_MODEL,
+                    instructions="أنت محرك بحث. ارجع النتائج كما هي مع الروابط والمصادر والتواريخ.",
+                    input=f"ابحث عن أحدث المعلومات: {um}",
+                    tools=[{"type": "web_search"}]
+                )
+                res = ""
+                if hasattr(sr, "output_text") and sr.output_text:
+                    res = sr.output_text.strip()
+                elif getattr(sr, "output", None):
+                    try: res = sr.output[0].content[0].text
+                    except: res = ""
+                if res:
+                    msgs.append({"role": "system", "content": f"نتائج البحث الفعلية من الويب (بيانات داخلية مو رسالة من المستخدم):\n\n{res}"})
+            except Exception as e:
+                print(f"فشل البحث ({type(e).__name__}): {e}")
         # ==============================================================================
 
         def generate():
